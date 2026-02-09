@@ -122,7 +122,7 @@ You must implement the following in `HeapPage`:
    and the tuples themselves. The bitmaps must be padded to 8-byte alignment.
 3. **`AsHeapPage`**: This function "casts" a raw `PageFrame` into a `HeapPage`. You may need to compute and cache some frequently accessed
    offsets for performance.
-4. **`MarkAllocated` / `MarkDeleted` / `IsAllocated` / `IsDeleted**`: Wrapper methods that use your Bitmap implementation to track the state
+4. **`MarkAllocated` / `MarkDeleted` / `IsAllocated` / `IsDeleted`**: Wrapper methods that use your Bitmap implementation to track the state
    of specific slots. Note that `MarkAllocated` should also update the `NumUsed` counter in the header.
 5. **`AccessTuple`**: Return a `RawTuple` (byte slice) pointing to the data for a specific RecordID.
 
