@@ -275,7 +275,7 @@ you should be prepared to explain your design choices and justify your tradeoffs
 This lab has an autograded component. Create a zip file containing your `godb` directory and your write-up.
 
 ```bash
-zip -r lab1_submission.zip godb/
+zip -r lab1_submission.zip . -x "*.git*"
 
 ```
 Upload this zip file to [Gradescope].
