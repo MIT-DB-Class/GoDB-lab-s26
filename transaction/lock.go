@@ -89,8 +89,9 @@ func (lm *LockManager) Lock(tid common.TransactionID, tag DBLockTag, mode DBLock
 	panic("unimplemented")
 }
 
-// Unlock releases the lock held by the transaction on the specified resource.
-func (lm *LockManager) Unlock(tid common.TransactionID, tag DBLockTag) {
+// Unlock releases the lock held by the transaction on the specified resource. If the requesting transaction does not
+// hold the specified lock, it should return GoDBError(LockNotFoundError)
+func (lm *LockManager) Unlock(tid common.TransactionID, tag DBLockTag) error {
 	panic("unimplemented")
 }
 

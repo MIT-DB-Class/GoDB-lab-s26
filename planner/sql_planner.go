@@ -10,16 +10,16 @@ import (
 // SQLPlanner orchestrates the parsing, logical planning, optimization,
 // and physical planning steps.
 type SQLPlanner struct {
-	lb  *LogicalPlanBuilder
-	opt *Optimizer
-	pb  *PhysicalPlanBuilder
+	catalog       *catalog.Catalog
+	opt           *Optimizer
+	physicalRules []PhysicalConversionRule
 }
 
 func NewSQLPlanner(c *catalog.Catalog, logicalRules []LogicalRule, physicalRules []PhysicalConversionRule) *SQLPlanner {
 	return &SQLPlanner{
-		lb:  NewLogicalPlanBuilder(c),
-		opt: NewOptimizer(logicalRules),
-		pb:  NewPhysicalPlanBuilder(c, physicalRules),
+		catalog:       c,
+		opt:           NewOptimizer(logicalRules),
+		physicalRules: physicalRules,
 	}
 }
 
@@ -31,7 +31,8 @@ func (p *SQLPlanner) Plan(sql string, silent bool) (PlanNode, error) {
 		return nil, fmt.Errorf("parse error: %w", err)
 	}
 
-	logicalPlan, err := p.lb.Plan(stmt)
+	lb := NewLogicalPlanBuilder(p.catalog)
+	logicalPlan, err := lb.Plan(stmt)
 	if err != nil {
 		return nil, fmt.Errorf("logical planning error: %w", err)
 	}
@@ -46,7 +47,8 @@ func (p *SQLPlanner) Plan(sql string, silent bool) (PlanNode, error) {
 		fmt.Printf("Optimized Logical Plan:\n%s\n", PrettyPrintLogicalPlan(optimizedPlan))
 	}
 
-	physicalPlan, err := p.pb.Build(optimizedPlan)
+	pb := NewPhysicalPlanBuilder(p.catalog, p.physicalRules)
+	physicalPlan, err := pb.Build(optimizedPlan)
 	if err != nil {
 		return nil, fmt.Errorf("physical planning error: %w", err)
 	}

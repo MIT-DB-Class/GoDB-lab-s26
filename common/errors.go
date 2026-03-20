@@ -17,6 +17,8 @@ const (
 	// LogClosedError indicates an attempt to write to the Write-Ahead Log
 	// after the logging subsystem has been shut down.
 	LogClosedError
+	// LockNotFoundError indicates an attempt to unlock without holding a lock
+	LockNotFoundError
 )
 
 func (ec GoDBErrorCode) String() string {

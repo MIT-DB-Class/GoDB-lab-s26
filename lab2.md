@@ -160,7 +160,7 @@ necessary columns to minimize memory usage, but doing so is quite tedious for ed
   a specific key, then fetch the actual tuples from the `TableHeap` using those RIDs.
 
 **Test:**
-Run `go test -v ./execution -run IndexExecutor`
+Run `go test -v ./execution -run IndexExecutor` (NOTE: run this test only after you finish Modifications)
 
 ### 2. Modifications
 **Crucially, you must maintain index consistency.**
@@ -168,14 +168,14 @@ Run `go test -v ./execution -run IndexExecutor`
   active indexes defined on the table.
 * **Delete (`DeletionExecutor`)**: Delete tuples from the `TableHeap`. You can assume that the child will read the entire
   tuple. You must also remove the corresponding keys from all active indexes.
-* **Update (`UpdateExecutor`)**: Update the tuple in the `TableHeap`. Because the child will only return the columns to
-  update, you may need to read the tuple first and construct the new tuple value. Check if the updated columns are part
+* **Update (`UpdateExecutor`)**: Update the tuple in the `TableHeap`. Check if the updated columns are part
   of any index key. If so, update the index entries (delete old key, insert new key).
 
 NOTE: Insert, Delete, Update executors follow standard SQL semantics. These executors should consume all tuples from their child executors and return a single output containing the number of rows affected (e.g. rows inserted, deleted, or updated).
 
 **Test:**
 Run `go test -v ./execution -run ModificationExecutor`
+
 
 
 ---
@@ -235,8 +235,8 @@ that the output tuple is the concatenation of the two input tuples from left to 
 Run `go test -v ./execution -run BNLJ`
 
 ### 2. Sort (`SortExecutor`)
-* **Logic:** `Init()` must consume **all** tuples from the child, store them in a buffer, and sort them according to the `OrderBy` expression.
-* **Execution:** `Next()` simply returns the next tuple from the sorted buffer.
+* **Execution:** The first call to `Next()` must consume **all** tuples from the child, store them in a buffer, and sort
+them according to the `OrderBy` expression. Subsequent calls simply returns the next tuple from the sorted buffer.
 * **Note:** This is a "blocking" operator; it produces no results until the child is exhausted.
   
 **Test:**
@@ -245,11 +245,11 @@ Run `go test -v ./execution -run BNLJ`
 ### 3. Aggregation (`AggregateExecutor`)
 * **Logic:** Implement grouped aggregation (e.g., `SELECT count(*), sum(a) FROM table GROUP BY b`).
 * **Strategy:** Use **Hash Aggregation**.
-    * In `Init()`, consume *all* tuples from the child.
+    * In the first call to `Next()`, consume *all* tuples from the child.
     * Maintain a Hash Map (you may use the one in `execution/hash_table.go`) where keys are the `GROUP BY` fields and
       values are the running aggregates (Sum, Count, Min, Max).
     * Update the aggregate state for every tuple.
-    * In `Next()`, iterate through the populated hash map and return the results.
+    * Subsequent calls to `Next()` iterate through the populated hash map and return the results.
 
 **Test:**
 Run `go test -v ./execution -run Aggregate`

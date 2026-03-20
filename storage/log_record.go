@@ -101,7 +101,10 @@ func (r LogRecord) CheckpointData() []byte {
 // WriteToLog serializes the record into the provided buffer and calculates the checksum.
 // The buffer must be large enough to hold r.Size() bytes.
 func (r LogRecord) WriteToLog(buffer []byte) {
-	panic("unimplemented")
+	common.Assert(len(buffer) >= r.Size(), "buffer allocated must be large enough fo the record")
+	copy(buffer, r.data)
+	binary.LittleEndian.PutUint16(buffer[offsetSize:], uint16(r.Size()))
+	// TODO: implement checksum here for lab 4
 }
 
 var ErrCorruptedLogRecord = fmt.Errorf("log record corrupted: checksum mismatch")

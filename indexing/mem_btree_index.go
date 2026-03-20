@@ -1,6 +1,8 @@
 package indexing
 
 import (
+	"fmt"
+
 	"github.com/tidwall/btree"
 	"mit.edu/dsg/godb/common"
 	"mit.edu/dsg/godb/storage"
@@ -59,6 +61,15 @@ func (index *MemBTreeIndex) InsertEntry(key Key, rid common.RecordID, txn *trans
 	item := btreeItem{key: keyCopy, rid: rid}
 	index.tree.Set(item)
 
+	if txn != nil {
+		txn.AddAbortTask(transaction.IndexTask{
+			Target: index,
+			Type:   transaction.IndexOpUndoInsert,
+			Key:    keyCopy.RawTuple,
+			RID:    rid,
+		})
+	}
+
 	return nil
 }
 
@@ -66,7 +77,23 @@ func (index *MemBTreeIndex) DeleteEntry(key Key, rid common.RecordID, txn *trans
 	common.Assert(key.schema == index.metadata.KeySchema, "Key schema mismatch")
 
 	item := btreeItem{key: key, rid: rid}
-	index.tree.Delete(item)
+	if txn == nil {
+		// txn == nil: immediate deletion (called from Invoke/abort rollback or non-transactional path)
+		index.tree.Delete(item)
+		return nil
+	}
+	// Defer deletion to commit time while X-lock is still held.
+	// This prevents concurrent readers from seeing a transiently-absent key (dirty read of index state).
+	stored, found := index.tree.Get(item)
+	if !found {
+		return nil
+	}
+	txn.AddCommitTask(transaction.IndexTask{
+		Target: index,
+		Type:   transaction.IndexOpDelete,
+		Key:    stored.key.RawTuple,
+		RID:    rid,
+	})
 
 	return nil
 }
@@ -132,6 +159,16 @@ func (index *MemBTreeIndex) Scan(start Key, direction ScanDirection, txn *transa
 	}
 	it.iter = iter
 	return it, nil
+}
+
+// Invoke handles transaction rollback and commit callbacks.
+func (index *MemBTreeIndex) Invoke(opType transaction.IndexOpType, key storage.RawTuple, rid common.RecordID) {
+	switch opType {
+	case transaction.IndexOpUndoInsert, transaction.IndexOpDelete:
+		_ = index.DeleteEntry(index.metadata.AsKey(key), rid, nil)
+	default:
+		fmt.Printf("Unknown index op type: %d\n", opType)
+	}
 }
 
 // MemBTreeIndexIterator implements ScanIterator for BTree range scans.

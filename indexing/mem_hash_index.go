@@ -75,6 +75,14 @@ func (index *MemHashIndex) InsertEntry(key Key, rid common.RecordID, txn *transa
 		b.rids = append(b.rids, rid)
 		b.Unlock()
 
+		if txn != nil {
+			txn.AddAbortTask(transaction.IndexTask{
+				Target: index,
+				Type:   transaction.IndexOpUndoInsert,
+				Key:    b.key,
+				RID:    rid,
+			})
+		}
 		return nil
 	}
 }
@@ -89,6 +97,17 @@ func (index *MemHashIndex) DeleteEntry(key Key, rid common.RecordID, txn *transa
 
 	b.Lock()
 	defer b.Unlock()
+
+	if txn != nil {
+		// Defer deletion to commit time while X-lock is still held.
+		txn.AddCommitTask(transaction.IndexTask{
+			Target: index,
+			Type:   transaction.IndexOpDelete,
+			Key:    b.key,
+			RID:    rid,
+		})
+		return nil
+	}
 
 	for i, r := range b.rids {
 		if r == rid {
@@ -133,4 +152,13 @@ func (index *MemHashIndex) ScanKey(key Key, output []common.RecordID, txn *trans
 
 func (index *MemHashIndex) Scan(start Key, direction ScanDirection, txn *transaction.TransactionContext) (ScanIterator, error) {
 	return nil, fmt.Errorf("range scans not supported for hash indexes")
+}
+
+func (index *MemHashIndex) Invoke(opType transaction.IndexOpType, key storage.RawTuple, rid common.RecordID) {
+	switch opType {
+	case transaction.IndexOpUndoInsert, transaction.IndexOpDelete:
+		_ = index.DeleteEntry(index.metadata.AsKey(key), rid, nil)
+	default:
+		fmt.Printf("Unknown index op type: %d\n", opType)
+	}
 }
