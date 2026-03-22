@@ -257,7 +257,7 @@ Run `go test -v [-race] . -run "TestWAL_FlushStress|TestConcurrent_Bank|TestAbor
 Create a zip file containing your `godb` directory.
 
 ```bash
-zip -r lab2_submission.zip . -x "*.git*"
+zip -r lab3_submission.zip . -x "*.git*"
 
 ```
 
