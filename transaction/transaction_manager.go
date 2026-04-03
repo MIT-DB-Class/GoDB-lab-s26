@@ -64,7 +64,7 @@ func (tm *TransactionManager) Abort(txn *TransactionContext) error {
 	return nil
 }
 
-// RestartTransactionForRecovery is used during database recovery (ARIES Analysis phase).
+// RestartTransactionForRecovery is used during database recovery (ARIES Redo phase).
 // It reconstructs a TransactionContext for a transaction that was active at the time of the crash.
 //
 // Hint: You do not need to worry about this function until lab 4

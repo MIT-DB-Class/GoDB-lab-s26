@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 
@@ -96,6 +97,18 @@ func (r LogRecord) IsCLR() bool {
 func (r LogRecord) CheckpointData() []byte {
 	common.Assert(r.RecordType() == LogEndCheckpoint, "CheckpointData() can only be called on CheckpointEnd records")
 	return r.data[offsetCheckpointData:]
+}
+
+// Equal reports whether r and other produce identical serialized bytes.
+func (r LogRecord) Equal(other LogRecord) bool {
+	if r.Size() != other.Size() {
+		return false
+	}
+	rBuf := make([]byte, r.Size())
+	r.WriteToLog(rBuf)
+	otherBuf := make([]byte, other.Size())
+	other.WriteToLog(otherBuf)
+	return bytes.Equal(rBuf, otherBuf)
 }
 
 // WriteToLog serializes the record into the provided buffer and calculates the checksum.

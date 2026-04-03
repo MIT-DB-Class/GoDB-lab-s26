@@ -37,11 +37,6 @@ func NewNoLogRecoveryManager(
 	}
 }
 
-// Dummy checkpoint
-func (rm *NoLogRecoveryManager) Checkpoint() (storage.LSN, error) {
-	return storage.LSN(0), nil
-}
-
 func rebuildIndexes(
 	catalog *catalog.Catalog,
 	tableManager *execution.TableManager,

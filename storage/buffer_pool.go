@@ -44,14 +44,13 @@ func (bp *BufferPool) UnpinPage(frame *PageFrame, setDirty bool) {
 }
 
 // FlushAllPages flushes all dirty pages to disk that have an LSN less than `flushedUntil`, regardless of pins.
-// This is typically called during a Checkpoint or Shutdown to ensure durability, but also useful for tests
+// This is typically called during a checkpoint or Shutdown to ensure durability, but also useful for tests
 func (bp *BufferPool) FlushAllPages() error {
 	panic("unimplemented")
 }
 
 // GetDirtyPageTableSnapshot returns a map of all currently dirty pages and their RecoveryLSN.
-// This is used by the Recovery Manager (ARIES) during the Analysis phase to reconstruct the
-// state of the database.
+// This is called during checkpoint to snapshot the current DPT into the log.
 //
 // Hint: You do not need to worry about this function until lab 4
 func (bp *BufferPool) GetDirtyPageTableSnapshot() map[common.PageID]LSN {
