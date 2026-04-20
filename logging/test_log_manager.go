@@ -72,13 +72,13 @@ func (m *MemoryLogManager) Append(record storage.LogRecord) (storage.LSN, error)
 	m.offsets = append(m.offsets, lsn)
 
 	if m.flushOnAppend.Load() {
-		m.flushedUntil.Store(int64(lsn))
+		m.flushedUntil.Store(int64(lsn + record.Size()))
 	}
 	return storage.LSN(lsn), nil
 }
 
 func (m *MemoryLogManager) WaitUntilFlushed(lsn storage.LSN) error {
-	for m.flushedUntil.Load() < int64(lsn) {
+	for int64(lsn) >= m.flushedUntil.Load() {
 		time.Sleep(time.Millisecond)
 	}
 	return nil
@@ -243,9 +243,14 @@ func VerifyWALOrdering(t *testing.T, mlm *MemoryLogManager) {
 
 	for iter.Next() {
 		rec := iter.CurrentRecord()
+		rt := rec.RecordType()
+		// Checkpoint records have no TxnID — skip them.
+		if rt == storage.LogBeginCheckpoint || rt == storage.LogEndCheckpoint {
+			continue
+		}
 		id := rec.TxnID()
 		s := stateOf(id)
-		switch rec.RecordType() {
+		switch rt {
 		case storage.LogBeginTransaction:
 			assert.False(t, s.hasBegin, "txn %d: duplicate Begin record", id)
 			s.hasBegin = true

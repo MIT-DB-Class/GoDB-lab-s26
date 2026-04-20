@@ -1,7 +1,7 @@
 # 6.5830/6.5831 Lab 4: Logging & Recovery
 
-**Assigned:** [04/03/2026]
-**Due:** [05/12/2026]
+**Assigned:** [Date]
+**Due:** [Date]
 
 ## Introduction
 
@@ -66,7 +66,7 @@ the given byte slice and return `ErrCorruptedLogRecord` (predefined in `log_reco
 Think carefully about what different conditions torn-writes can produce on log records.
 
 **Tests:**
-Run `go test -v ./storage -run AsVerifiedLogRecord` to verify that your implementation correctly identifies torn writes across all field boundaries.
+Run `go test -v ./storage -run TestAsVerifiedLogRecord_TornWrite` to verify that your implementation correctly identifies torn writes across all field boundaries.
 
 ---
 ## Part 2: The Log Manager
@@ -130,8 +130,8 @@ valid records. Hint: use `bufio.Reader` to iterate over the given log file.
 
 **Tests:**
 Parts 2a and 2b depend on each other and are tested together.
-Run `go test -v ./logging -run TestLogFileIterator` to verify the iterator correctly reads records and handles torn writes.
-Run `go test -v -race ./logging -run TestDoubleBuffer` to verify the log manager's correctness and concurrency safety (buffer swaps, group commit, close-under-load).
+Run `go test -v ./logging -run "TestLogFileIterator_Basic|TestLogFileIterator_FailureScenarios"` to verify the iterator correctly reads records and handles torn writes.
+Run `go test -v [-race] ./logging -run "TestDoubleBuffer"` to verify the log manager's correctness and concurrency safety (buffer swaps, group commit, close-under-load).
 
 ---
 
@@ -158,6 +158,9 @@ maintain a background goroutine and reason about graceful shutdown.
 #### Implementation Tasks
 Implement the `BackgroundFlusher` struct and its `Start()`, `Stop()`, and background goroutine in `background_flusher.go`.
 
+**Tests:**
+Run `go test -v ./recovery -run TestBackgroundFlusher` to verify that the flusher fires periodically under concurrent writes and that `Stop()` returns promptly.
+
 ### Part 3b: Checkpoint
 
 Periodically, the system writes a fuzzy checkpoint to disk. In ARIES, this generates two additional log records:
@@ -182,6 +185,15 @@ The format must be consistent between your `Checkpoint()` (write side) and the d
 
 You will also need to complete the two stubs deferred from earlier labs: `GetDirtyPageTableSnapshot()` in
 `godb/storage/buffer_pool.go` and `GetActiveTransactionsSnapshot()` in `godb/transaction/transaction_manager.go`.
+
+**Hint — ATT snapshot:** Think carefully about what it means for a transaction to appear in the ATT snapshot when
+its commit record's LSN is earlier than `beginCheckpointLSN`. What would Analysis conclude about that transaction?
+
+**Hint — DPT snapshot:** Some races may cause `recoveryLSN` to be larger than actual first LSN to dirty the page. Think about
+what might happen if you are not careful to avoid this race.
+
+**Tests:**
+Run `go test -v ./recovery -run TestCheckpointManager` to verify that checkpoint records are paired and fire at the expected rate.
 
 ### Part 3c: Recovery
 **File:** `godb/recovery/recovery_manager.go`
@@ -216,15 +228,27 @@ survivor, preserving its original `TransactionID`.
 - **`BufferRecordForRecovery(record)`** in `transaction_context.go` — appends a record to the survivor's undo log, or for
 a CLR pops the most recent entry (that operation was already compensated before the crash).
 
+**Hint — transaction ID continuity:** After recovery, the database must be ready to accept new transactions. Think about
+what happens if `Begin()` assigns a transaction ID that was already used before the crash. You will need to ensure the
+`TransactionManager`'s ID counter is advanced past any ID seen in the WAL. Consider adding a helper method to
+`TransactionManager` and calling it from `Recover()` after the analysis phase.
+
+**Tests:**
+Run `go test -v ./recovery -run TestRecovery_Basic` to verify all fundamental ARIES scenarios: redo committed, undo uncommitted, CLR redo, update redo+undo, idempotent recovery, and TID monotonicity after recovery.
+Run `go test -v ./recovery -run TestRecovery_WithCheckpoint` to verify checkpoint-aware recovery: analysis starting from the latest checkpoint, empty-DPT fast path (no page reads), transactions spanning checkpoints, and correctness under multiple checkpoints.
+
 ### Part 3d: Wiring It Together
 
 **File:** `godb/main.go`
 
 Once all components are implemented, wire them into `main.go` (look for the `TODO` comments):
 
-1. In `NewGoDB`, replace `NoopLogManager` with `DoubleBufferLogManager`. The log file lives at `filepath.Join(logDir, "wal.log")`.
+1. In `NewGoDB`, replace `NoopLogManager` with `DoubleBufferLogManager`. The log file lives at `filepath.Join(logDir, "wal.log")`. You will also need to add `"mit.edu/dsg/godb/logging"` to the import block.
 2. In `NewGoDB`, replace `NewNoLogRecoveryManager` with `NewRecoveryManager`. `Recover()` is already called on the result.
 3. After `Recover()` returns, start a `BackgroundFlusher` and a `CheckpointManager`.
+
+**Tests:**
+Run `go test -v [-race] . -run "TestRecovery_E2E"` to run the end-to-end crash-recovery stress tests covering bank transfers, abort storms, YCSB workloads, repeated crash-recovery cycles, delete-replace races, and crash-during-recovery scenarios.
 
 ---
 

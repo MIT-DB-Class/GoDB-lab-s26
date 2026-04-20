@@ -130,7 +130,7 @@ func (f *WALCheckingDBFile) WritePage(pageNum int, frame []byte) error {
 	}
 	if len(frame) >= 8 {
 		pageLSN := storage.LSN(int64(binary.LittleEndian.Uint64(frame[:8])))
-		if flushed := f.mlm.FlushedUntil(); pageLSN > flushed {
+		if flushed := f.mlm.FlushedUntil(); pageLSN >= flushed {
 			f.t.Errorf(
 				"WAL ordering violation: page (num=%d) written to disk with pageLSN=%d but flushedUntil=%d (buffer pool evicted without calling WaitUntilFlushed)",
 				pageNum, pageLSN, flushed)

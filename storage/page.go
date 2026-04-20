@@ -42,27 +42,25 @@ func (frame *PageFrame) LSN() LSN {
 // MonotonicallyUpdateLSN atomically updates the LSN. The update is atomic and is only applied if the given lsn is
 // larger than the current value.
 func (frame *PageFrame) MonotonicallyUpdateLSN(lsn LSN) {
+	// HINT: For lab 4, you may need to modify this function to ensure correct dirty page table computation
 	ptr := (*uint64)(unsafe.Pointer(&frame.Bytes[pageOffsetLSN]))
 	newVal := uint64(lsn)
-
 	for {
 		rawCurrent := atomic.LoadUint64(ptr)
 		logicalCurrent := rawCurrent
 		if isBigEndian {
 			logicalCurrent = bits.ReverseBytes64(rawCurrent)
 		}
-
 		if newVal <= logicalCurrent {
 			return
 		}
-
 		rawNew := newVal
 		if isBigEndian {
 			rawNew = bits.ReverseBytes64(newVal)
 		}
-
 		if atomic.CompareAndSwapUint64(ptr, rawCurrent, rawNew) {
 			return
 		}
 	}
+
 }
