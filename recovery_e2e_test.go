@@ -829,9 +829,16 @@ func TestRecovery_E2E_DeleteReplace_CrashRecover(t *testing.T) {
 					return
 				}
 				// DELETE then re-INSERT the same key with a new value.
-				_, err = wdb.execSQL(txn, fmt.Sprintf(
+				delRows, err := wdb.execSQL(txn, fmt.Sprintf(
 					"DELETE FROM kv WHERE k = %d", k))
 				if abortOnDeadlockR(t, wdb, txn, err) {
+					continue
+				}
+				// Skip INSERT if another delete-replace committed between our
+				// index scan and our lock wait — avoids two live rows for the
+				// same k (GoDB does not enforce PK uniqueness on INSERT).
+				if delRows[0][0].IntValue() == 0 {
+					_ = wdb.TransactionManager.Abort(txn)
 					continue
 				}
 				_, err = wdb.execSQL(txn, fmt.Sprintf(

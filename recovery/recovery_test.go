@@ -1,8 +1,11 @@
 package recovery
 
 import (
+	"encoding/binary"
 	"fmt"
 	"math/rand"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -634,4 +637,139 @@ func TestRecovery_WithCheckpoint(t *testing.T) {
 	// Crash without committing txnBefore.
 	env = env.crashAndRecover()
 	env.assertKVContains(map[int64]int64{1: 10, 2: 20, 3: 30, 4: 40, 5: 50, 9: 90})
+}
+
+// TestRecovery_CheckpointATTAccuracy verifies that the analysis phase correctly
+// reconciles a checkpoint's Active Transaction Table (ATT) against the rest of
+// the log. Three scenarios are exercised in sequence, each building on the
+// previously committed state.
+func TestRecovery_CheckpointATTAccuracy(t *testing.T) {
+	env := newRecoveryTestEnv(t)
+
+	// findBeginLSN returns the LSN of the BeginTransaction record for txnID.
+	findBeginLSN := func(txnID common.TransactionID) storage.LSN {
+		iter, err := env.mlm.Iterator(0)
+		require.NoError(t, err)
+		defer iter.Close()
+		var lsn storage.LSN
+		var found bool
+		for iter.Next() {
+			r := iter.CurrentRecord()
+			if r.RecordType() == storage.LogBeginTransaction && r.TxnID() == txnID {
+				lsn = iter.CurrentLSN()
+				found = true
+			}
+		}
+		require.NoError(t, iter.Error())
+		require.True(t, found, "no BeginTransaction for txnID %d", txnID)
+		return lsn
+	}
+
+	// beginCheckpoint appends a BeginCheckpoint record and returns its LSN.
+	beginCheckpoint := func() storage.LSN {
+		buf := make([]byte, storage.BeginCheckpointRecordSize())
+		lsn, err := env.mlm.Append(storage.NewBeginCheckpointRecord(buf))
+		require.NoError(t, err)
+		return lsn
+	}
+
+	// sealCheckpoint appends an EndCheckpoint with att (empty DPT) and writes
+	// the master record file pointing at beginLSN.
+	sealCheckpoint := func(beginLSN storage.LSN, att []transaction.ATTEntry) {
+		dataSize := 8 + 16*len(att) // 4(numATT) + entries + 4(numDPT=0)
+		endBuf := make([]byte, storage.EndCheckpointRecordSize(dataSize))
+		endRecord := storage.NewEndCheckpointRecord(endBuf, dataSize)
+		payload := endRecord.CheckpointData()
+		offset := 0
+		binary.LittleEndian.PutUint32(payload[offset:], uint32(len(att)))
+		offset += 4
+		for _, e := range att {
+			binary.LittleEndian.PutUint64(payload[offset:], uint64(e.ID))
+			offset += 8
+			binary.LittleEndian.PutUint64(payload[offset:], uint64(e.StartLSN))
+			offset += 8
+		}
+		binary.LittleEndian.PutUint32(payload[offset:], 0) // numDPT = 0
+		_, err := env.mlm.Append(endRecord)
+		require.NoError(t, err)
+		masterData := make([]byte, 8)
+		binary.LittleEndian.PutUint64(masterData, uint64(beginLSN))
+		require.NoError(t, os.WriteFile(filepath.Join(env.dbDir, MasterRecordFileName), masterData, 0644))
+	}
+
+	// Scenario A: a transaction commits between a BeginCheckpoint and its paired
+	// EndCheckpoint (the fuzzy checkpoint race window). The EndCheckpoint's ATT
+	// records the transaction as active because the ATT snapshot was taken before
+	// the commit. Recovery must not treat it as active and undo its writes.
+	//
+	// Log: Begin | Insert | BeginCheckpoint | Commit | EndCheckpoint(ATT={T})
+	{
+		txn, err := env.tm.Begin()
+		require.NoError(t, err)
+		env.insertKV(txn, 1, 10)
+		begin1 := findBeginLSN(txn.ID())
+
+		ckptLSN := beginCheckpoint() // ATT snapshot: T still active
+
+		require.NoError(t, env.tm.Commit(txn)) // commit lands in the race window
+		require.NoError(t, env.bp.FlushAllPages())
+		sealCheckpoint(ckptLSN, []transaction.ATTEntry{{ID: txn.ID(), StartLSN: begin1}})
+
+		env = env.crashAndRecover()
+		env.assertKVContains(map[int64]int64{1: 10})
+	}
+
+	// Scenario B: a transaction aborts between a BeginCheckpoint and its
+	// EndCheckpoint. The EndCheckpoint's ATT still lists it as active. Recovery
+	// must not re-abort it — the undo was already applied before the crash.
+	//
+	// Log: Begin | Insert | BeginCheckpoint | InsertCLR | Abort | EndCheckpoint(ATT={T})
+	{
+		txn, err := env.tm.Begin()
+		require.NoError(t, err)
+		env.insertKV(txn, 2, 20)
+		begin2 := findBeginLSN(txn.ID())
+
+		ckptLSN := beginCheckpoint()
+
+		require.NoError(t, env.tm.Abort(txn)) // abort lands in the race window
+		require.NoError(t, env.bp.FlushAllPages())
+		sealCheckpoint(ckptLSN, []transaction.ATTEntry{{ID: txn.ID(), StartLSN: begin2}})
+
+		env = env.crashAndRecover()
+		env.assertKVContains(map[int64]int64{1: 10})
+	}
+
+	// Scenario C: the checkpoint ATT holds two transactions — one that committed
+	// in the race window (T3) and one genuinely uncommitted at crash time (T4).
+	// T3's rows must survive; T4's must be rolled back.
+	//
+	// Log: Begin T3 | Insert T3 | Begin T4 | Insert T4 | BeginCheckpoint |
+	//      Commit T3 | EndCheckpoint(ATT={T3, T4})   [T4 never commits]
+	{
+		txn3, err := env.tm.Begin()
+		require.NoError(t, err)
+		env.insertKV(txn3, 3, 30)
+		begin3 := findBeginLSN(txn3.ID())
+
+		txn4, err := env.tm.Begin()
+		require.NoError(t, err)
+		env.insertKV(txn4, 4, 40)
+		begin4 := findBeginLSN(txn4.ID())
+
+		ckptLSN := beginCheckpoint()
+
+		require.NoError(t, env.tm.Commit(txn3)) // T3 commits in the race window
+		// T4 intentionally left uncommitted — crash occurs before its commit
+		require.NoError(t, env.bp.FlushAllPages())
+		sealCheckpoint(ckptLSN, []transaction.ATTEntry{
+			{ID: txn3.ID(), StartLSN: begin3},
+			{ID: txn4.ID(), StartLSN: begin4},
+		})
+
+		env = env.crashAndRecover()
+		env.assertKVContains(map[int64]int64{1: 10, 3: 30})
+	}
+
+	assertTIDMonotone(t, env)
 }

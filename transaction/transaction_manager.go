@@ -1,6 +1,7 @@
 package transaction
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -67,6 +68,7 @@ func (tm *TransactionManager) Abort(txn *TransactionContext) error {
 		cleanupTask.Target.Invoke(cleanupTask.Type, cleanupTask.Key, cleanupTask.RID)
 	}
 
+	fmt.Printf("Aborting transaction %d\n", txn.ID())
 	// Add your implementation here
 	return nil
 }
