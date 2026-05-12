@@ -1,7 +1,7 @@
 # 6.5830/6.5831 Lab 4: Logging & Recovery
 
-**Assigned:** [Date]
-**Due:** [Date]
+**Assigned:** [04/17/26]
+**Due:** [05/12/26]
 
 ## Introduction
 
@@ -202,7 +202,9 @@ Recall that textbook ARIES has three phases. Here's how they each look like mapp
 #### Analysis
 
 Scan the log forward from the checkpoint LSN, rebuilding the DPT and ATT. When you encounter a `LogEndCheckpoint`, merge
-its embedded tables into the running state — entries already observed in the forward scan are more recent and take precedence.
+its embedded tables into the running state — for the ATT, forward-scan entries take precedence (a transaction already
+seen finishing should not be re-added from the snapshot); for the DPT, snapshot entries take precedence (equivalently,
+keep the minimum `recoveryLSN`) so pre-checkpoint not-yet-flushed updates aren't skipped.
 The analysis phase also computes the earliest LSN Redo must read from, and the LSN of the final record seen, where Redo stops.
 
 #### Redo
